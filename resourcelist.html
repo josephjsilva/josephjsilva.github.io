@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sheet Data by Category</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        #main-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a73e8;
+            text-align: center;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #444;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+            margin-top: 40px;
+        }
+        .item-card {
+            background-color: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-left: 5px solid #1a73e8;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .item-card h3 {
+            margin: 0 0 5px 0;
+            color: #333;
+        }
+        .item-card p {
+            margin: 0;
+            color: #666;
+        }
+        .loader, .error {
+            text-align: center;
+            font-size: 1.2em;
+            color: #888;
+            padding: 50px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="main-container">
+        <h1>Inventory List</h1>
+        <div id="data-container">
+            <div class="loader">⚙️ Loading data from Google Sheet...</div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        // The ID of your Google Sheet.
+        const GOOGLE_SHEET_ID = '1QnEOk4ADuGJEucuL2ylYWv5ZqUOD9_PvSpcKFoBcfJo';
+        // The name of the specific sheet/tab.
+        const GOOGLE_SHEET_TAB_NAME = 'Sheet1';
+        // The final URL to fetch the sheet data as CSV.
+        const API_URL = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${GOOGLE_SHEET_TAB_NAME}`;
+
+        /**
+         * Fetches and displays the sheet data when the page is loaded.
+         */
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchSheetData();
+        });
+
+        /**
+         * Fetches CSV data from the Google Sheet API URL.
+         */
+        async function fetchSheetData() {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                const csvText = await response.text();
+                processData(csvText);
+            } catch (error) {
+                console.error('Error fetching sheet data:', error);
+                const container = document.getElementById('data-container');
+                container.innerHTML = `<div class="error">❌ Failed to load data. Please ensure the Google Sheet is public.</div>`;
+            }
+        }
+
+        /**
+         * Processes the raw CSV text into structured data and renders it.
+         * @param {string} csvText - The raw CSV data from the fetch call.
+         */
+        function processData(csvText) {
+            // 1. Parse CSV into an array of objects
+            const rows = parseCsv(csvText);
+            
+            // 2. Group data by the 'Category' column
+            const groupedData = {};
+            const categoryOrder = []; // To maintain the original order of categories
+
+            rows.forEach(row => {
+                // Skip if row is empty or doesn't have a category
+                if (!row || !row.Category) return; 
+
+                const category = row.Category;
+                if (!groupedData[category]) {
+                    groupedData[category] = [];
+                    categoryOrder.push(category); // Add new category to our order array
+                }
+                groupedData[category].push(row);
+            });
+            
+            // 3. Render the grouped data to the page
+            renderGroupedData(groupedData, categoryOrder);
+        }
+        
+        /**
+         * Renders the grouped data into HTML elements.
+         * @param {object} groupedData - Data grouped by category.
+         * @param {string[]} categoryOrder - Array of category names in their original order.
+         */
+        function renderGroupedData(groupedData, categoryOrder) {
+            const container = document.getElementById('data-container');
+            container.innerHTML = ''; // Clear the "Loading..." message
+
+            if (categoryOrder.length === 0) {
+                container.innerHTML = `<div class="error">No data found in the sheet.</div>`;
+                return;
+            }
+
+            // Loop through categories in their original order
+            categoryOrder.forEach(category => {
+                const categoryElement = document.createElement('div');
+                categoryElement.className = 'category-group';
+                
+                const titleElement = document.createElement('h2');
+                titleElement.textContent = category;
+                categoryElement.appendChild(titleElement);
+
+                // Loop through items within this category
+                groupedData[category].forEach(item => {
+                    const itemCard = document.createElement('div');
+                    itemCard.className = 'item-card';
+
+                    itemCard.innerHTML = `
+                        <h3>${item.Item || 'No Item Name'}</h3>
+                        <p>${item.Description || 'No description available.'}</p>
+                    `;
+                    categoryElement.appendChild(itemCard);
+                });
+
+                container.appendChild(categoryElement);
+            });
+        }
+        
+        /**
+         * A simple CSV parser to handle Google's gviz output format.
+         * It converts CSV text to an array of objects.
+         * @param {string} text - The raw CSV string.
+         * @returns {object[]} An array of objects, where each object represents a row.
+         */
+        function parseCsv(text) {
+            // Split the text into lines
+            const lines = text.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            // The first line is the header. Google wraps them in quotes, so we parse them.
+            const headers = lines[0].split(',').map(header => JSON.parse(header));
+            
+            // Process the rest of the lines
+            const dataRows = lines.slice(1).map(line => {
+                // This regex handles comma-separated values that are enclosed in double quotes.
+                const values = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || [];
+                
+                const rowObject = {};
+                headers.forEach((header, index) => {
+                    if (values[index]) {
+                        // Remove quotes from the beginning and end of the value
+                        rowObject[header] = values[index].replace(/^"|"$/g, '');
+                    }
+                });
+                return rowObject;
+            });
+            
+            return dataRows;
+        }
+
+    </script>
+</body>
+</html>
